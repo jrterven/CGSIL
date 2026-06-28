@@ -6,11 +6,11 @@ from typing import Callable
 import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
-from torchvision.datasets import CIFAR10, CIFAR100
+from torchvision.datasets import CIFAR10, CIFAR100, SVHN
 
 
 @dataclass
-class CIFARLTInfo:
+class LongTailDatasetInfo:
     num_classes: int
     class_counts: list[int]
     class_names: list[str]
@@ -31,7 +31,7 @@ def get_img_num_per_cls(num_classes: int, total_images: int, imbalance_type: str
     return [max(1, count) for count in img_num_per_cls]
 
 
-class CIFARLongTailDataset(Dataset):
+class LongTailDataset(Dataset):
     def __init__(self, data: np.ndarray, targets: list[int], transform: Callable | None = None):
         self.data = data
         self.targets = list(targets)
@@ -41,7 +41,10 @@ class CIFARLongTailDataset(Dataset):
         return len(self.targets)
 
     def __getitem__(self, index: int):
-        image = Image.fromarray(self.data[index])
+        image = self.data[index]
+        if image.ndim == 3 and image.shape[0] in {1, 3}:
+            image = np.transpose(image, (1, 2, 0))
+        image = Image.fromarray(image)
         target = self.targets[index]
         if self.transform is not None:
             image = self.transform(image)
@@ -52,13 +55,38 @@ class CIFARLongTailDataset(Dataset):
         return counts.astype(int).tolist()
 
 
-_DATASET_FACTORY = {
-    "cifar10": (CIFAR10, 10),
-    "cifar100": (CIFAR100, 100),
+_NUM_CLASSES = {
+    "cifar10": 10,
+    "cifar100": 100,
+    "svhn": 10,
 }
 
 
-def build_cifar_lt_datasets(
+def load_base_dataset(dataset_name: str, root: str, train: bool, download: bool):
+    dataset_name = dataset_name.lower()
+    if dataset_name == "cifar10":
+        dataset = CIFAR10(root=root, train=train, download=download)
+        data = np.asarray(dataset.data)
+        targets = np.asarray(dataset.targets, dtype=np.int64)
+        class_names = list(dataset.classes)
+        return data, targets, class_names
+    if dataset_name == "cifar100":
+        dataset = CIFAR100(root=root, train=train, download=download)
+        data = np.asarray(dataset.data)
+        targets = np.asarray(dataset.targets, dtype=np.int64)
+        class_names = list(dataset.classes)
+        return data, targets, class_names
+    if dataset_name == "svhn":
+        split = "train" if train else "test"
+        dataset = SVHN(root=root, split=split, download=download)
+        data = np.transpose(np.asarray(dataset.data), (0, 2, 3, 1))
+        targets = np.asarray(dataset.labels, dtype=np.int64)
+        class_names = [str(index) for index in range(10)]
+        return data, targets, class_names
+    raise ValueError(f"Unsupported dataset: {dataset_name}")
+
+
+def build_long_tail_datasets(
     dataset_name: str,
     root: str,
     imbalance_ratio: float,
@@ -69,14 +97,14 @@ def build_cifar_lt_datasets(
     seed: int = 42,
 ):
     dataset_name = dataset_name.lower()
-    if dataset_name not in _DATASET_FACTORY:
+    if dataset_name not in _NUM_CLASSES:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
-    dataset_cls, num_classes = _DATASET_FACTORY[dataset_name]
-    train_base = dataset_cls(root=root, train=True, download=download)
-    test_base = dataset_cls(root=root, train=False, download=download)
+    num_classes = _NUM_CLASSES[dataset_name]
+    train_data_full, train_targets_full, class_names = load_base_dataset(dataset_name, root, train=True, download=download)
+    test_data, test_targets, _ = load_base_dataset(dataset_name, root, train=False, download=download)
 
-    targets = np.asarray(train_base.targets, dtype=np.int64)
+    targets = np.asarray(train_targets_full, dtype=np.int64)
     img_num_per_cls = get_img_num_per_cls(num_classes, len(targets), imbalance_type, imbalance_ratio)
 
     rng = np.random.default_rng(seed)
@@ -88,12 +116,11 @@ def build_cifar_lt_datasets(
 
     rng.shuffle(selected_indices)
 
-    train_data = train_base.data[selected_indices]
+    train_data = train_data_full[selected_indices]
     train_targets = targets[selected_indices].tolist()
 
-    train_dataset = CIFARLongTailDataset(train_data, train_targets, transform=train_transform)
-    test_dataset = CIFARLongTailDataset(test_base.data, list(test_base.targets), transform=test_transform)
+    train_dataset = LongTailDataset(train_data, train_targets, transform=train_transform)
+    test_dataset = LongTailDataset(test_data, list(test_targets), transform=test_transform)
 
-    class_names = list(getattr(train_base, "classes", [str(index) for index in range(num_classes)]))
-    info = CIFARLTInfo(num_classes=num_classes, class_counts=train_dataset.get_class_counts(num_classes), class_names=class_names)
+    info = LongTailDatasetInfo(num_classes=num_classes, class_counts=train_dataset.get_class_counts(num_classes), class_names=class_names)
     return train_dataset, test_dataset, info

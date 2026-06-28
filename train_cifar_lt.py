@@ -30,15 +30,15 @@ except ImportError:
     def tqdm(iterable, **kwargs):
         return _TQDMFallback(iterable, **kwargs)
 
-from datasets.cifar_lt import build_cifar_lt_datasets
+from datasets.cifar_lt import build_long_tail_datasets
 from grad_surgery import assign_gradient_vector, compute_group_cgsil_gradient
 from losses import FocalLoss
 from utils.metrics import compute_classification_metrics
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train CIFAR long-tailed baselines and CGSIL")
-    parser.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "cifar100"])
+    parser = argparse.ArgumentParser(description="Train long-tailed image classification baselines and CGSIL")
+    parser.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "cifar100", "svhn"])
     parser.add_argument("--data-root", type=str, default="./data")
     parser.add_argument("--method", type=str, default="erm", choices=["erm", "weighted_ce", "focal", "cgsil"])
     parser.add_argument("--imbalance-ratio", type=float, default=100.0)
@@ -128,17 +128,29 @@ def build_model(num_classes: int) -> nn.Module:
     return model
 
 
-def build_transforms():
-    mean = (0.4914, 0.4822, 0.4465)
-    std = (0.2023, 0.1994, 0.2010)
-    train_transform = transforms.Compose(
-        [
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
-        ]
-    )
+def build_transforms(dataset_name: str):
+    dataset_name = dataset_name.lower()
+    if dataset_name == "svhn":
+        mean = (0.4377, 0.4438, 0.4728)
+        std = (0.1980, 0.2010, 0.1970)
+        train_transform = transforms.Compose(
+            [
+                transforms.RandomCrop(32, padding=4),
+                transforms.ToTensor(),
+                transforms.Normalize(mean, std),
+            ]
+        )
+    else:
+        mean = (0.4914, 0.4822, 0.4465)
+        std = (0.2023, 0.1994, 0.2010)
+        train_transform = transforms.Compose(
+            [
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean, std),
+            ]
+        )
     test_transform = transforms.Compose(
         [
             transforms.ToTensor(),
@@ -374,8 +386,8 @@ def main() -> None:
     set_seed(args.seed)
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
-    train_transform, test_transform = build_transforms()
-    train_dataset, test_dataset, info = build_cifar_lt_datasets(
+    train_transform, test_transform = build_transforms(args.dataset)
+    train_dataset, test_dataset, info = build_long_tail_datasets(
         dataset_name=args.dataset,
         root=args.data_root,
         imbalance_ratio=args.imbalance_ratio,

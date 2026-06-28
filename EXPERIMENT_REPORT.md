@@ -14,7 +14,8 @@
    1. [Overall Winners](#overall-winners)
    2. [Core Method Comparison](#core-method-comparison)
    3. [CGSIL v2 Ablation Study](#cgsil-v2-ablation-study)
-   4. [Quantitative Takeaways](#quantitative-takeaways)
+   4. [Follow-Up Combined Experiments](#follow-up-combined-experiments)
+   5. [Quantitative Takeaways](#quantitative-takeaways)
 5. [Discussion](#discussion)
    1. [What Improved from CGSIL v1 to CGSIL v2](#what-improved-from-cgsil-v1-to-cgsil-v2)
    2. [Why the Best Configuration Depends on the Dataset](#why-the-best-configuration-depends-on-the-dataset)
@@ -41,13 +42,19 @@ This report documents that refinement process end to end. It explains the implem
 
 ## Experimental Scope
 
-The repository contains **70 non-smoke experiment outputs** used for this analysis.
+The repository contains **76 non-smoke experiment outputs** used for this analysis.
 
 - **48 runs**
   - The full CGSIL v2 matrix:
   - 2 datasets (`cifar10`, `cifar100`)
   - 3 imbalance ratios (`10`, `50`, `100`)
   - 8 CGSIL v2 configurations per dataset/ratio
+
+- **6 runs**
+  - Follow-up combined-ingredient experiments:
+  - `base_focal + no_threshold + fc` on CIFAR-10
+  - `base_ce + no_threshold + fc` on CIFAR-100
+  - Across the same three imbalance ratios
 
 - **18 runs**
   - Baseline methods:
@@ -57,7 +64,7 @@ The repository contains **70 non-smoke experiment outputs** used for this analys
 - **4 runs**
   - Historical CGSIL v1 outputs available from earlier experimentation
 
-Of these, **69 runs completed the full 200-epoch schedule**. One historical run, `cifar100_cgsil_ir10_seed42`, logged **173 epochs** rather than 200. Its best recorded score is still reported, but comparisons involving that specific historical run should be interpreted cautiously.
+Of these, **75 runs completed the full 200-epoch schedule**. One historical run, `cifar100_cgsil_ir10_seed42`, logged **173 epochs** rather than 200. Its best recorded score is still reported, but comparisons involving that specific historical run should be interpreted cautiously.
 
 All experiments used a **ResNet-18** backbone.
 
@@ -306,6 +313,58 @@ Same as `cgsilv2_main`, except the conflict threshold is changed from `-0.05` to
 - **Purpose**
   - Test whether surgery should be triggered on any negative conflict rather than only stronger conflicts
 
+#### 10. `cgsilv2_combo_focal_no_threshold_fc`
+
+This follow-up variant combines the two strongest CIFAR-10-side ingredients from the initial ablation matrix: focal base loss and zero conflict threshold, while keeping the `fc` surgery scope and the stricter v2 gating/warmup settings.
+
+- **Base loss**
+  - `focal`
+
+- **Surgery scope**
+  - `fc`
+
+- **Warmup before surgery**
+  - `50` epochs
+
+- **Tail support gating**
+  - `min_tail_samples = 8`
+  - `min_tail_classes = 2`
+
+- **Conflict threshold**
+  - `0.0`
+
+- **Beta schedule**
+  - `0.6 -> 0.8`
+
+- **Purpose**
+  - Test whether combining the strongest single-factor CIFAR-10 choices produces additive gains
+
+#### 11. `cgsilv2_combo_ce_no_threshold_fc`
+
+This follow-up variant combines the two strongest CIFAR-100-side ingredients from the initial ablation matrix: plain cross-entropy base loss and zero conflict threshold, again keeping the `fc` surgery scope and the stricter v2 gating/warmup settings.
+
+- **Base loss**
+  - `ce`
+
+- **Surgery scope**
+  - `fc`
+
+- **Warmup before surgery**
+  - `50` epochs
+
+- **Tail support gating**
+  - `min_tail_samples = 8`
+  - `min_tail_classes = 2`
+
+- **Conflict threshold**
+  - `0.0`
+
+- **Beta schedule**
+  - `0.6 -> 0.8`
+
+- **Purpose**
+  - Test whether combining the strongest single-factor CIFAR-100 choices produces additive gains
+
 ## Results
 
 ### Overall Winners
@@ -316,7 +375,7 @@ Same as `cgsilv2_main`, except the conflict threshold is changed from `-0.05` to
 | cifar10 | 50 | cgsilv2_ablate_base_focal | 0.8175 | 0.8175 | 0.8186 | 145 |
 | cifar10 | 100 | cgsilv2_ablate_no_threshold | 0.7687 | 0.7687 | 0.7695 | 142 |
 | cifar100 | 10 | cgsilv2_ablate_base_ce | 0.6469 | 0.6469 | 0.6434 | 193 |
-| cifar100 | 50 | cgsilv2_ablate_base_ce | 0.4954 | 0.4954 | 0.4679 | 126 |
+| cifar100 | 50 | cgsilv2_combo_ce_no_threshold_fc | 0.5013 | 0.5013 | 0.4738 | 126 |
 | cifar100 | 100 | cgsilv2_ablate_base_ce | 0.4401 | 0.4401 | 0.3955 | 153 |
 
 At a high level, the final leaderboard already suggests the main pattern of the study:
@@ -329,7 +388,7 @@ At a high level, the final leaderboard already suggests the main pattern of the 
 
 - **CIFAR-100**
   - CGSIL v2 can outperform baselines, but the best configuration is not the nominal `main` recipe
-  - instead, the strongest setting is the `base_ce` ablation
+  - the strongest settings are CE-based `fc`-scoped variants, with `base_ce` winning at IR=10 and IR=100, and the follow-up `base_ce + no_threshold + fc` combination winning at IR=50
 
 ### Core Method Comparison
 
@@ -392,6 +451,36 @@ This table compares the primary baseline methods with the three central CGSIL po
 
 These ablations are the most informative part of the study, because they explain **why** the nominal v2 configuration sometimes wins and sometimes does not.
 
+### Follow-Up Combined Experiments
+
+After the initial ablation matrix, two targeted combined-ingredient follow-up variants were tested:
+
+- **CIFAR-10**
+  - `base_focal + no_threshold + fc`
+
+- **CIFAR-100**
+  - `base_ce + no_threshold + fc`
+
+| Dataset | IR | Follow-up combo | BA | Delta vs Main | Delta vs Best Parent Ablation | Delta vs Best Baseline |
+|---|---:|---|---:|---:|---:|---:|
+| cifar10 | 10 | `focal + no_threshold + fc` | 0.8672 | +0.0324 | +0.0214 | -0.0387 |
+| cifar10 | 50 | `focal + no_threshold + fc` | 0.8099 | -0.0039 | -0.0076 | -0.0059 |
+| cifar10 | 100 | `focal + no_threshold + fc` | 0.7638 | -0.0012 | -0.0049 | +0.0042 |
+| cifar100 | 10 | `ce + no_threshold + fc` | 0.6460 | +0.0120 | -0.0009 | +0.0042 |
+| cifar100 | 50 | `ce + no_threshold + fc` | 0.5013 | +0.0310 | +0.0059 | +0.0108 |
+| cifar100 | 100 | `ce + no_threshold + fc` | 0.4353 | +0.0617 | -0.0048 | -0.0027 |
+
+These follow-up runs answer an important open question from the original ablation stage: **combining individually strong ingredients is not uniformly additive across datasets**.
+
+- **For CIFAR-10**
+  - The combined recipe improves substantially over `main` at IR=10 and becomes the strongest CGSIL-family configuration on average
+  - However, it does not beat the best single ablation at IR=50 or IR=100, so the gains are not consistently additive
+
+- **For CIFAR-100**
+  - The combined recipe improves over `main` at all imbalance ratios
+  - It produces the best observed CIFAR-100 result at IR=50
+  - It is effectively tied with `base_ce` on average across imbalance ratios, with a tiny edge at unrounded precision
+
 ### Quantitative Takeaways
 
 #### 1. Improvement from `cgsil_v1` to `cgsilv2_main`
@@ -442,7 +531,26 @@ Interpretation:
 - **CIFAR-10 IR=10` and `CIFAR-100 IR=100`**
   - it is not yet the best default choice
 
-#### 4. Average ablation ranking by dataset
+#### 4. Follow-up combination experiments versus their parent ablations
+
+| Dataset | IR | Combo | Delta vs Main | Delta vs Best Parent Ablation |
+|---|---:|---|---:|---:|
+| cifar10 | 10 | `focal + no_threshold + fc` | +0.0324 | +0.0214 |
+| cifar10 | 50 | `focal + no_threshold + fc` | -0.0039 | -0.0076 |
+| cifar10 | 100 | `focal + no_threshold + fc` | -0.0012 | -0.0049 |
+| cifar100 | 10 | `ce + no_threshold + fc` | +0.0120 | -0.0009 |
+| cifar100 | 50 | `ce + no_threshold + fc` | +0.0310 | +0.0059 |
+| cifar100 | 100 | `ce + no_threshold + fc` | +0.0617 | -0.0048 |
+
+Interpretation:
+
+- **CIFAR-10**
+  - The combined recipe is beneficial, but its gains are concentrated in the mild regime rather than being uniformly additive
+
+- **CIFAR-100**
+  - The combined recipe is much more robustly useful, producing a clear mid-imbalance win and large improvements over `main`
+
+#### 5. Average ablation ranking by dataset
 
 Averaging balanced accuracy across imbalance ratios provides a rough sense of which design choices are robust.
 
@@ -450,6 +558,7 @@ Averaging balanced accuracy across imbalance ratios provides a rough sense of wh
 
 | Variant | Mean BA |
 |---|---:|
+| cgsilv2_combo_focal_no_threshold_fc | 0.8136 |
 | cgsilv2_ablate_no_threshold | 0.8071 |
 | cgsilv2_ablate_base_focal | 0.8068 |
 | cgsilv2_main | 0.8045 |
@@ -463,6 +572,7 @@ Averaging balanced accuracy across imbalance ratios provides a rough sense of wh
 
 | Variant | Mean BA |
 |---|---:|
+| cgsilv2_combo_ce_no_threshold_fc | 0.5275 |
 | cgsilv2_ablate_base_ce | 0.5275 |
 | cgsilv2_ablate_no_threshold | 0.4987 |
 | cgsilv2_ablate_base_focal | 0.4936 |
@@ -508,6 +618,7 @@ CIFAR-10 has relatively few classes and each class retains more effective suppor
 - the main v2 recipe is already good, but the best variants are often:
   - `base_focal`
   - `no_threshold`
+- the follow-up `base_focal + no_threshold + fc` combination improves the CGSIL family on average, but does not replace the best single ablation at every imbalance ratio
 
 This suggests that for CIFAR-10, the optimization problem is not primarily one of insufficient tail emphasis. Instead, it is one of **making the surgery trigger at the right moments** and pairing it with a loss that maintains enough emphasis on informative hard examples.
 
@@ -516,7 +627,7 @@ This suggests that for CIFAR-10, the optimization problem is not primarily one o
 CIFAR-100 is much harder. Each class receives fewer examples, the label space is denser, and minority classes are more fragile. In this setting:
 
 - plain CE under surgery outperforms weighted CE under surgery
-- relaxing the threshold can help, but not as decisively as switching the base loss to CE
+- relaxing the threshold can help, and in combination with plain CE it produces the best IR=50 result in the study
 - loose-tail gating and full-network surgery are especially harmful
 
 This indicates that in CIFAR-100, aggressively compounding imbalance-aware weighting with gradient surgery may over-correct the optimization process. Put differently, **the surgery itself already rebalances the effective update enough that an additional weighted base objective may become counterproductive**.
@@ -588,6 +699,17 @@ This was especially strong on CIFAR-10 and competitive on CIFAR-100.
 - **Practical implication**
   - Threshold tuning deserves to be treated as a first-class hyperparameter, not a detail
 
+#### Combining strong ingredients
+
+The follow-up combined runs reveal that interaction effects are dataset-dependent.
+
+- **Interpretation**
+  - On CIFAR-10, combining `base_focal` and `no_threshold` improves mean performance but does not dominate the best single ablation at each individual imbalance ratio
+  - On CIFAR-100, combining `base_ce` and `no_threshold` is more genuinely additive, especially at IR=50
+
+- **Practical implication**
+  - Combined recipes should be validated per dataset rather than assumed to transfer as a general rule
+
 ### Failure Modes and Caveats
 
 No report of this kind is complete without acknowledging what did **not** work or where the interpretation should remain cautious.
@@ -621,30 +743,29 @@ Based on the current evidence, the following follow-up experiments would be the 
 Repeat the strongest candidates with at least 3 seeds.
 
 - **CIFAR-10 candidates**
+  - `cgsilv2_combo_focal_no_threshold_fc`
   - `cgsilv2_ablate_no_threshold`
   - `cgsilv2_ablate_base_focal`
   - `weighted_ce`
 
 - **CIFAR-100 candidates**
+  - `cgsilv2_combo_ce_no_threshold_fc`
   - `cgsilv2_ablate_base_ce`
   - `erm`
-  - `cgsilv2_ablate_no_threshold`
 
 This would tell us whether the observed gains are robust or within seed noise.
 
-#### 2. Combine the best-performing v2 ingredients
+#### 2. Promote or deprioritize the tested combinations
 
-The current ablations change one component at a time relative to `main`. The next logical step is to combine the strongest ingredients.
-
-Suggested combinations:
+The follow-up combinations have now been tested, which changes the recommendation landscape.
 
 - **For CIFAR-10**
-  - `base_focal + no_threshold + fc`
+  - Keep `cgsilv2_combo_focal_no_threshold_fc` as a strong average-performing CGSIL candidate
+  - Do not treat it as a universal replacement for `base_focal` or `no_threshold`, because its gains were not consistently additive at IR=50 and IR=100
 
 - **For CIFAR-100**
-  - `base_ce + no_threshold + fc`
-
-These combinations were not directly tested in the current matrix and could plausibly outperform every existing configuration.
+  - Promote `cgsilv2_combo_ce_no_threshold_fc` to a first-class candidate for future multi-seed validation
+  - Especially prioritize the IR=50 regime, where it produced the best observed CIFAR-100 result
 
 #### 3. Tune the threshold more finely
 
@@ -695,11 +816,12 @@ The v2 refinements fundamentally changed the picture:
 The final practical recommendations are straightforward.
 
 - **For CIFAR-10-like settings**
-  - The best CGSIL v2 candidates are `no_threshold` and `base_focal`
+  - The best CGSIL v2 candidates are `no_threshold`, `base_focal`, and the follow-up `focal + no_threshold + fc` combination
   - Classical weighted CE remains very strong under milder imbalance
 
 - **For CIFAR-100-like settings**
-  - `base_ce` is the most reliable CGSIL v2 configuration
+  - `base_ce` and `ce + no_threshold + fc` are the strongest CGSIL v2 configurations
+  - The combined `ce + no_threshold + fc` recipe is the best observed setting at IR=50
   - Weighted CE is not the best base objective under surgery in this harder regime
 
 In short, the experiments do not support a one-size-fits-all version of CGSIL. Instead, they support **a family of CGSIL v2 configurations whose effectiveness depends on the dataset and the severity of imbalance**. That is a more valuable outcome than merely finding a single winner, because it explains which design choices matter and why.
